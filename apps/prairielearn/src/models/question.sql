@@ -36,6 +36,26 @@ FROM
 WHERE
   iq.id = $instance_question_id;
 
+-- BLOCK select_question_is_shared
+SELECT
+  EXISTS (
+    SELECT
+      1
+    FROM
+      sharing_set_questions
+    WHERE
+      question_id = $question_id
+  )
+  OR EXISTS (
+    SELECT
+      1
+    FROM
+      questions
+    WHERE
+      id = $question_id
+      AND share_publicly
+  );
+
 -- BLOCK select_questions_for_course_instance_copy
 SELECT DISTINCT
   q.*
