@@ -218,7 +218,7 @@ async function makeAndInsertVariant(
 ): Promise<VariantWithFormattedDate> {
   let resolvedQuestionId = question_id;
   let generationContext: QuestionServerGenerateContext = {
-    userId,
+    userId: user_id,
     groupId: null,
     assessmentInstanceId: null,
     assessmentId: null,

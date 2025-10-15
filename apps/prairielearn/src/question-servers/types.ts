@@ -29,6 +29,7 @@ export interface QuestionServerGroupInfo {
 export interface QuestionServerGenerateContext {
   userId?: string | null;
   groupId?: string | null;
+  assessmentInstanceId?: string | null;
   assessmentId?: string | null;
 }
 

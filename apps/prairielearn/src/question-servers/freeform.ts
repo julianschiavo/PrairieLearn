@@ -1606,7 +1606,7 @@ export async function grade(
     const viewerContext = await buildViewerContext({
       questionIsShared: context.question_is_shared,
       variant,
-      userId: submission.user_id ?? variant.user_id ?? null,
+      userId: variant.user_id ?? null,
     });
 
     const data = {
