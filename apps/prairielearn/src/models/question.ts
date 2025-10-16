@@ -50,6 +50,10 @@ export async function selectQuestionByInstanceQuestionId(
   );
 }
 
+export async function questionIsShared(question_id: string): Promise<boolean> {
+  return await queryRow(sql.select_question_is_shared, { question_id }, z.boolean());
+}
+
 export const QuestionForCopySchema = QuestionSchema.extend({
   should_copy: z.boolean().optional(),
 });

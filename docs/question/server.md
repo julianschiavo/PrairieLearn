@@ -21,6 +21,33 @@ The following sections build a simple example of a question that asks the studen
 
 More details about the `{{params.x}}` and `{{feedback.y}}` Mustache syntax can be found in the [question template documentation](./template.md#mustache-templates).
 
+## Viewer context
+
+Every phase receives information about the person viewing the question. This data is available on the `data` dictionary that PrairieLearn passes into each phase:
+
+- `data["user"]` – either `None` or an object with the keys `user_id`, `uid`, `name`, and `email` for the current viewer.
+- `data["group"]` – either `None` or a dictionary describing the viewer's group. The object includes `group_id`, `name`, `size`, and a `members` array. Each member entry contains the same user fields (`user_id`, `uid`, `name`, `email`) plus a `roles` list describing any assigned group roles.
+- `data["question_shared"]` – `True` when the question is shared outside the course (for example through a sharing set), and `False` otherwise.
+
+For privacy, `data["user"]` and `data["group"]` are always `None` when `data["question_shared"]` is `True`. Question code should check for `None` before accessing these objects. A simple pattern is:
+
+```python title="server.py"
+def render(data, html):
+    viewer = data["user"]
+    if viewer is not None:
+        data["params"]["viewer_uid"] = viewer["uid"]
+    else:
+        data["params"]["viewer_uid"] = "anonymous"
+
+    group = data["group"]
+    if group:
+        data["params"]["group_size"] = group["size"]
+
+    return html
+```
+
+The same viewer context is available in every phase (`generate`, `prepare`, `render`, `parse`, `grade`, `test`, and `file`).
+
 ## Step 1: `generate`
 
 First, the `generate` function is called to generate the question variant. It should update `data["params"]` with any necessary parameters for the question, and `data["correct_answers"]` with the correct answers.

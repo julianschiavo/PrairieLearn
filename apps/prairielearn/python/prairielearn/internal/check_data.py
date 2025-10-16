@@ -2,7 +2,7 @@ from typing import Any, Literal, TypedDict
 
 Phase = Literal["generate", "prepare", "render", "parse", "grade", "test", "file"]
 
-ValueType = Literal["boolean", "integer", "number", "string", "object"]
+ValueType = Literal["boolean", "integer", "number", "string", "object", "nullable_object"]
 
 all_phases: frozenset[Phase] = frozenset({
     "generate",
@@ -122,6 +122,21 @@ PROPS: dict[str, PropInfo] = {
         "present_phases": all_phases,
         "edit_phases": frozenset(),
     },
+    "user": {
+        "type": "nullable_object",
+        "present_phases": all_phases,
+        "edit_phases": frozenset(),
+    },
+    "group": {
+        "type": "nullable_object",
+        "present_phases": all_phases,
+        "edit_phases": frozenset(),
+    },
+    "question_shared": {
+        "type": "boolean",
+        "present_phases": all_phases,
+        "edit_phases": frozenset(),
+    },
 }
 
 
@@ -140,19 +155,19 @@ def check_prop(
 
     # Ensure that the prop is present.
     if new_value is None:
-        raise ValueError(f'data["{prop}"] is missing')
-
-    # Check the type.
-    if value_type == "integer" and not isinstance(new_value, int):
-        raise ValueError(f'Expected data["{prop}"] to be an integer')
-    if value_type == "string" and not isinstance(new_value, str):
-        raise ValueError(f'Expected data["{prop}"] to be a string')
-    if value_type == "number" and not isinstance(new_value, (int, float)):
-        raise ValueError(f'Expected data["{prop}"] to be a number')
-    if value_type == "boolean" and not isinstance(new_value, bool):
-        raise ValueError(f'Expected data["{prop}"] to be a boolean')
-    if value_type == "object" and not isinstance(new_value, dict):
-        raise ValueError(f'Expected data["{prop}"] to be an object')
+        if value_type != "nullable_object":
+            raise ValueError(f'data["{prop}"] is missing')
+    else:
+        if value_type == "integer" and not isinstance(new_value, int):
+            raise ValueError(f'Expected data["{prop}"] to be an integer')
+        if value_type == "string" and not isinstance(new_value, str):
+            raise ValueError(f'Expected data["{prop}"] to be a string')
+        if value_type == "number" and not isinstance(new_value, (int, float)):
+            raise ValueError(f'Expected data["{prop}"] to be a number')
+        if value_type == "boolean" and not isinstance(new_value, bool):
+            raise ValueError(f'Expected data["{prop}"] to be a boolean')
+        if value_type in {"object", "nullable_object"} and not isinstance(new_value, dict):
+            raise ValueError(f'Expected data["{prop}"] to be an object')
 
     # Check the value.
     if phase not in edit_phases and old_value != new_value:

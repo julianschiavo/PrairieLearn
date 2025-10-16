@@ -60,6 +60,24 @@ def test_check_data_invalid_modification_nested() -> None:
         check_data({"params": {"foo": "bar"}}, {"params": {"foo": "baz"}}, "test")
 
 
+def test_check_data_nullable_object_allows_none() -> None:
+    check_data({"user": None}, {"user": None}, "generate")
+
+
+def test_check_data_nullable_object_type_error() -> None:
+    with pytest.raises(
+        ValueError, match=r'Expected data\["user"\] to be an object'
+    ):
+        check_data({"user": None}, {"user": "bad"}, "generate")
+
+
+def test_check_data_boolean_enforced() -> None:
+    with pytest.raises(
+        ValueError, match=r'Expected data\["question_shared"\] to be a boolean'
+    ):
+        check_data({"question_shared": True}, {"question_shared": "yes"}, "generate")
+
+
 def test_check_data_number_keys() -> None:
     with pytest.raises(ValueError, match="data contains extra keys: 1, 2"):
         check_data(

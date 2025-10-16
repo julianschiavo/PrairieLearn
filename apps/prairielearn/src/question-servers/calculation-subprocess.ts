@@ -18,6 +18,7 @@ import {
   type ParseSubmission,
   type PrepareResultData,
   type PrepareVariant,
+  type QuestionServerGenerateContext,
   type QuestionServerReturnValue,
   type RenderResultData,
   type RenderSelection,
@@ -126,6 +127,7 @@ export async function generate(
   question: Question,
   course: Course,
   variant_seed: string,
+  _context?: QuestionServerGenerateContext,
 ): QuestionServerReturnValue<GenerateResultData> {
   return await callFunction<GenerateResultData>('generate', course, question, { variant_seed });
 }
@@ -167,6 +169,7 @@ export async function prepare(
   _question: Question,
   _course: Course,
   variant: PrepareVariant,
+  _context?: QuestionServerGenerateContext,
 ): QuestionServerReturnValue<PrepareResultData> {
   const data = {
     params: variant.params ?? {},

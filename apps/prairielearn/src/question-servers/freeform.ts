@@ -26,6 +26,7 @@ import * as markdown from '../lib/markdown.js';
 import { APP_ROOT_PATH } from '../lib/paths.js';
 import { assertNever } from '../lib/types.js';
 import { getOrUpdateCourseCommitHash } from '../models/course.js';
+import { questionIsShared } from '../models/question.js';
 import {
   type ElementCoreJson,
   ElementCoreJsonSchema,
@@ -43,11 +44,13 @@ import {
   type ParseSubmission,
   type PrepareResultData,
   type PrepareVariant,
+  type QuestionServerGenerateContext,
   type QuestionServerReturnValue,
   type RenderResultData,
   type RenderSelection,
   type TestResultData,
 } from './types.js';
+import { buildViewerContext, buildViewerContextFromGenerate } from './user-context.js';
 
 const debug = debugfn('prairielearn:freeform');
 
@@ -62,6 +65,7 @@ interface QuestionProcessingContext {
   question_dir_host: string;
   course_elements: ElementNameMap;
   course_element_extensions: ElementExtensionNameDirMap;
+  question_is_shared: boolean;
 }
 
 type ElementExtensionNameDirMap = Record<string, Record<string, ElementExtensionJsonExtension>>;
@@ -398,35 +402,43 @@ function checkData(data: Record<string, any>, origData: Record<string, any>, pha
     type: 'integer' | 'number' | 'string' | 'boolean' | 'object',
     presentPhases: Phase[],
     editPhases: Phase[],
+    options?: { optional?: boolean; allowNull?: boolean },
   ) => {
     if (!presentPhases.includes(phase)) return null;
-    if (!Object.prototype.hasOwnProperty.call(data, prop)) {
+    const hasProp = Object.prototype.hasOwnProperty.call(data, prop);
+    if (!hasProp) {
+      if (options?.optional) return null;
       return `"${prop}" is missing from "data"`;
     }
+    const value = data[prop];
     switch (type) {
       case 'integer':
-        if (!Number.isInteger(data[prop])) {
-          return `data.${prop} is not an integer: ${String(data[prop])}`;
+        if (!Number.isInteger(value)) {
+          return `data.${prop} is not an integer: ${String(value)}`;
         }
         break;
       case 'number':
-        if (!Number.isFinite(data[prop])) {
-          return `data.${prop} is not a number: ${String(data[prop])}`;
+        if (!Number.isFinite(value)) {
+          return `data.${prop} is not a number: ${String(value)}`;
         }
         break;
       case 'string':
-        if (typeof data[prop] !== 'string') {
-          return `data.${prop} is not a string: ${String(data[prop])}`;
+        if (typeof value !== 'string') {
+          return `data.${prop} is not a string: ${String(value)}`;
         }
         break;
       case 'boolean':
-        if (data[prop] !== true && data[prop] !== false) {
-          return `data.${prop} is not a boolean: ${String(data[prop])}`;
+        if (value !== true && value !== false) {
+          return `data.${prop} is not a boolean: ${String(value)}`;
         }
         break;
       case 'object':
-        if (data[prop] == null || typeof data[prop] !== 'object') {
-          return `data.${prop} is not an object: ${String(data[prop])}`;
+        if (value == null) {
+          if (options?.allowNull) break;
+          return `data.${prop} is not an object: ${String(value)}`;
+        }
+        if (typeof value !== 'object') {
+          return `data.${prop} is not an object: ${String(value)}`;
         }
         break;
       default:
@@ -474,6 +486,9 @@ function checkData(data: Record<string, any>, origData: Record<string, any>, pha
              || checkProp('gradable',              'boolean', ['parse', 'grade', 'test'],           [])
              || checkProp('filename',              'string',  ['file'],                             [])
              || checkProp('test_type',             'string',  ['test'],                             [])
+             || checkProp('user',                  'object',  allPhases,                            [], { allowNull: true })
+             || checkProp('group',                 'object',  allPhases,                            [], { allowNull: true })
+             || checkProp('question_shared',       'boolean', allPhases,                            [])
              || checkProp('answers_names',         'object',  ['prepare'],                          ['prepare']);
   if (err) return err;
 
@@ -799,15 +814,24 @@ export async function generate(
   question: Question,
   course: Course,
   variant_seed: string,
+  generationContext?: QuestionServerGenerateContext,
 ): QuestionServerReturnValue<GenerateResultData> {
   return instrumented('freeform.generate', async () => {
     const context = await getContext(question, course);
+
+    const viewerContext = await buildViewerContextFromGenerate(
+      context.question_is_shared,
+      generationContext,
+    );
 
     const data = {
       params: {},
       correct_answers: {},
       variant_seed: Number.parseInt(variant_seed, 36),
       options: { ...course.options, ...question.options, ...getContextOptions(context) },
+      user: viewerContext.user,
+      group: viewerContext.group,
+      question_shared: context.question_is_shared,
     } satisfies ExecutionData;
 
     return await withCodeCaller(course, async (codeCaller) => {
@@ -833,11 +857,17 @@ export async function prepare(
   question: Question,
   course: Course,
   variant: PrepareVariant,
+  generationContext?: QuestionServerGenerateContext,
 ): QuestionServerReturnValue<PrepareResultData> {
   return instrumented('freeform.prepare', async () => {
     if (variant.broken) throw new Error('attempted to prepare broken variant');
 
     const context = await getContext(question, course);
+
+    const viewerContext = await buildViewerContextFromGenerate(
+      context.question_is_shared,
+      generationContext,
+    );
 
     const data = {
       // These should never be null, but that can't be encoded in the schema.
@@ -846,6 +876,9 @@ export async function prepare(
       variant_seed: Number.parseInt(variant.variant_seed, 36),
       options: { ...variant.options, ...getContextOptions(context) },
       answers_names: {},
+      user: viewerContext.user,
+      group: viewerContext.group,
+      question_shared: context.question_is_shared,
     } satisfies ExecutionData;
 
     return await withCodeCaller(course, async (codeCaller) => {
@@ -943,6 +976,13 @@ async function renderPanel(
     ...getContextOptions(context),
   };
 
+  const viewerContext = await buildViewerContext({
+    questionIsShared: context.question_is_shared,
+    preloadedUser: locals.user ?? null,
+    variant,
+    assessmentId: locals.assessment?.id ?? null,
+  });
+
   const data = {
     // `params` and `true_answer` are allowed to change during `parse()`/`grade()`,
     // so we'll use the submission's values if they exist.
@@ -977,6 +1017,9 @@ async function renderPanel(
     ai_grading: locals.questionRenderContext === 'ai_grading',
     panel,
     num_valid_submissions: variant.num_tries,
+    user: viewerContext.user,
+    group: viewerContext.group,
+    question_shared: context.question_is_shared,
   } satisfies ExecutionData;
 
   const { data: cachedData, cacheHit } = await getCachedDataOrCompute(
@@ -1439,6 +1482,12 @@ export async function file(
 
     const context = await getContext(question, course);
 
+    const viewerContext = await buildViewerContext({
+      questionIsShared: context.question_is_shared,
+      variant,
+      userId: variant.user_id ?? null,
+    });
+
     const data = {
       // These should never be null, but that can't be encoded in the schema.
       params: variant.params ?? {},
@@ -1446,6 +1495,9 @@ export async function file(
       variant_seed: Number.parseInt(variant.variant_seed, 36),
       options: { ...variant.options, ...getContextOptions(context) },
       filename,
+      user: viewerContext.user,
+      group: viewerContext.group,
+      question_shared: context.question_is_shared,
     } satisfies ExecutionData;
 
     const { data: cachedData, cacheHit } = await getCachedDataOrCompute(
@@ -1490,6 +1542,12 @@ export async function parse(
 
     const context = await getContext(question, course);
 
+    const viewerContext = await buildViewerContext({
+      questionIsShared: context.question_is_shared,
+      variant,
+      userId: variant.user_id ?? null,
+    });
+
     const data = {
       // These should never be null, but that can't be encoded in the schema.
       params: variant.params ?? {},
@@ -1501,6 +1559,9 @@ export async function parse(
       options: { ...variant.options, ...getContextOptions(context) },
       raw_submitted_answers: submission.raw_submitted_answer ?? {},
       gradable: submission.gradable ?? true,
+      user: viewerContext.user,
+      group: viewerContext.group,
+      question_shared: context.question_is_shared,
     } satisfies ExecutionData;
 
     return withCodeCaller(course, async (codeCaller) => {
@@ -1541,6 +1602,13 @@ export async function grade(
     if (submission.broken) throw new Error('attempted to grade broken submission');
 
     const context = await getContext(question, question_course);
+
+    const viewerContext = await buildViewerContext({
+      questionIsShared: context.question_is_shared,
+      variant,
+      userId: variant.user_id ?? null,
+    });
+
     const data = {
       // Note that `params` and `true_answer` can change during `parse()`, so we
       // use the submission's values when grading.
@@ -1557,6 +1625,9 @@ export async function grade(
       options: { ...variant.options, ...getContextOptions(context) },
       raw_submitted_answers: submission.raw_submitted_answer ?? {},
       gradable: submission.gradable ?? true,
+      user: viewerContext.user,
+      group: viewerContext.group,
+      question_shared: context.question_is_shared,
     } satisfies ExecutionData;
 
     return withCodeCaller(question_course, async (codeCaller) => {
@@ -1599,6 +1670,12 @@ export async function test(
 
     const context = await getContext(question, course);
 
+    const viewerContext = await buildViewerContext({
+      questionIsShared: context.question_is_shared,
+      variant,
+      userId: variant.user_id ?? null,
+    });
+
     const data = {
       // These should never be null, but that can't be encoded in the schema.
       params: variant.params ?? {},
@@ -1612,6 +1689,9 @@ export async function test(
       raw_submitted_answers: {},
       gradable: true as boolean,
       test_type,
+      user: viewerContext.user,
+      group: viewerContext.group,
+      question_shared: context.question_is_shared,
     } satisfies ExecutionData & { test_type: 'correct' | 'incorrect' | 'invalid' };
 
     return withCodeCaller(course, async (codeCaller) => {
@@ -1661,6 +1741,8 @@ async function getContext(question: Question, course: Course): Promise<QuestionP
   const questionDirectory = path.join(courseDirectory, 'questions', question.directory);
   const questionDirectoryHost = path.join(coursePath, 'questions', question.directory);
 
+  const isShared = question.id ? await questionIsShared(question.id) : false;
+
   // Load elements and any extensions
   const elements = await loadElementsForCourse(course);
   const extensions = await loadExtensionsForCourse({
@@ -1678,6 +1760,7 @@ async function getContext(question: Question, course: Course): Promise<QuestionP
     question_dir_host: questionDirectoryHost,
     course_elements: elements,
     course_element_extensions: extensions,
+    question_is_shared: isShared,
   };
 }
 

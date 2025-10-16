@@ -7,6 +7,32 @@ export interface RenderSelection {
   answer?: boolean;
 }
 
+export interface QuestionServerUserInfo {
+  user_id: string;
+  uid: string;
+  name: string | null;
+  email: string | null;
+}
+
+export interface QuestionServerGroupMemberInfo extends QuestionServerUserInfo {
+  roles: string[];
+}
+
+export interface QuestionServerGroupInfo {
+  group_id: string;
+  name: string;
+  members: QuestionServerGroupMemberInfo[];
+  size: number;
+  start: boolean;
+}
+
+export interface QuestionServerGenerateContext {
+  userId?: string | null;
+  groupId?: string | null;
+  assessmentInstanceId?: string | null;
+  assessmentId?: string | null;
+}
+
 export type QuestionServerReturnValue<T> = Promise<{
   courseIssues: (Error & { fatal?: boolean; data?: any })[];
   data: T;
@@ -75,11 +101,13 @@ export interface QuestionServer {
     question: Question,
     course: Course,
     variant_seed: string,
+    context?: QuestionServerGenerateContext,
   ) => QuestionServerReturnValue<Partial<GenerateResultData>>;
   prepare: (
     question: Question,
     course: Course,
     variant: PrepareVariant,
+    context?: QuestionServerGenerateContext,
   ) => QuestionServerReturnValue<PrepareResultData>;
   render: (
     renderSelection: RenderSelection,
@@ -149,4 +177,7 @@ export interface ExecutionData {
   filename?: string;
   gradable?: boolean;
   extensions?: Record<string, ElementExtensionJsonExtension>;
+  user: QuestionServerUserInfo | null;
+  group: QuestionServerGroupInfo | null;
+  question_shared: boolean;
 }

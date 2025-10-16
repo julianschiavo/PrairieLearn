@@ -9,9 +9,11 @@ import { selectOptionalCourseInstanceById } from '../models/course-instances.js'
 import { selectCourseById } from '../models/course.js';
 import { selectQuestionById, selectQuestionByInstanceQuestionId } from '../models/question.js';
 import * as questionServers from '../question-servers/index.js';
+import { type QuestionServerGenerateContext } from '../question-servers/types.js';
 
 import { type Course, IdSchema, type Question, type Variant, VariantSchema } from './db-types.js';
 import { idsEqual } from './id.js';
+import { selectInstanceQuestionContext } from './instance-question-context.js';
 import { writeCourseIssues } from './issues.js';
 
 const sql = sqldb.loadSqlEquiv(import.meta.url);
@@ -20,16 +22,6 @@ const VariantWithFormattedDateSchema = VariantSchema.extend({
   formatted_date: z.string(),
 });
 type VariantWithFormattedDate = z.infer<typeof VariantWithFormattedDateSchema>;
-
-const InstanceQuestionDataSchema = z.object({
-  question_id: IdSchema,
-  user_id: IdSchema.nullable(),
-  group_id: IdSchema.nullable(),
-  assessment_instance_id: IdSchema,
-  course_instance_id: IdSchema,
-  instance_question_open: z.boolean().nullable(),
-  assessment_instance_open: z.boolean().nullable(),
-});
 
 interface VariantCreationData {
   variant_seed: string;
@@ -50,6 +42,7 @@ export async function makeVariant(
   question: Question,
   course: Course,
   options: { variant_seed?: string | null },
+  context?: QuestionServerGenerateContext,
 ): Promise<{
   courseIssues: (Error & { fatal?: boolean; data?: any })[];
   variant: VariantCreationData;
@@ -62,7 +55,12 @@ export async function makeVariant(
   }
 
   const questionModule = questionServers.getModule(question.type);
-  const { courseIssues, data } = await questionModule.generate(question, course, variant_seed);
+  const { courseIssues, data } = await questionModule.generate(
+    question,
+    course,
+    variant_seed,
+    context,
+  );
   const hasFatalIssue = courseIssues.some((issue) => issue.fatal);
   let variant: VariantCreationData = {
     variant_seed,
@@ -90,6 +88,7 @@ export async function makeVariant(
       question,
       course,
       variant,
+      context,
     );
     courseIssues.push(...prepareCourseIssues);
     const hasFatalIssue = courseIssues.some((issue) => issue.fatal);
@@ -216,11 +215,35 @@ async function makeAndInsertVariant(
   require_open: boolean,
   client_fingerprint_id: string | null,
 ): Promise<VariantWithFormattedDate> {
-  const question = await selectQuestion(question_id, instance_question_id);
+  let resolvedQuestionId = question_id;
+  let generationContext: QuestionServerGenerateContext = {
+    userId: user_id,
+    groupId: null,
+    assessmentInstanceId: null,
+    assessmentId: null,
+  };
+
+  if (instance_question_id != null) {
+    const instanceQuestionContext = await selectInstanceQuestionContext(instance_question_id);
+    if (instanceQuestionContext == null) {
+      throw new error.HttpStatusError(404, 'Instance question not found');
+    }
+    resolvedQuestionId = instanceQuestionContext.question_id;
+    course_instance_id = instanceQuestionContext.course_instance_id;
+    generationContext = {
+      userId: instanceQuestionContext.user_id,
+      groupId: instanceQuestionContext.group_id,
+      assessmentInstanceId: instanceQuestionContext.assessment_instance_id,
+      assessmentId: instanceQuestionContext.assessment_id,
+    };
+  }
+
+  const question = await selectQuestion(resolvedQuestionId, instance_question_id);
   const { courseIssues, variant: variantData } = await makeVariant(
     question,
     question_course,
     options,
+    generationContext,
   );
 
   const variant = await sqldb.runInTransactionAsync(async () => {
@@ -230,11 +253,7 @@ async function makeAndInsertVariant(
 
     if (instance_question_id != null) {
       await lockAssessmentInstanceForInstanceQuestion(instance_question_id);
-      const instance_question = await sqldb.queryOptionalRow(
-        sql.select_instance_question_data,
-        { instance_question_id },
-        InstanceQuestionDataSchema,
-      );
+      const instance_question = await selectInstanceQuestionContext(instance_question_id);
       if (instance_question == null) {
         throw new error.HttpStatusError(404, 'Instance question not found');
       }
