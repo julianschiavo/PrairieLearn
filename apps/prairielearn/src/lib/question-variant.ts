@@ -12,8 +12,8 @@ import * as questionServers from '../question-servers/index.js';
 import { type QuestionServerGenerateContext } from '../question-servers/types.js';
 
 import { type Course, IdSchema, type Question, type Variant, VariantSchema } from './db-types.js';
-import { selectInstanceQuestionContext } from './instance-question-context.js';
 import { idsEqual } from './id.js';
+import { selectInstanceQuestionContext } from './instance-question-context.js';
 import { writeCourseIssues } from './issues.js';
 
 const sql = sqldb.loadSqlEquiv(import.meta.url);
@@ -30,7 +30,6 @@ interface VariantCreationData {
   options: Record<string, any>;
   broken: boolean;
 }
-
 
 /**
  * Internal function, do not call directly. Create a variant object, do not write to DB.

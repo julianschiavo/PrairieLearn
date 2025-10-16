@@ -1,9 +1,7 @@
-import type { Variant } from '../lib/db-types.js';
-import { type User } from '../lib/db-types.js';
+import { type User, type Variant } from '../lib/db-types.js';
 import { getGroupConfig, getGroupInfo } from '../lib/groups.js';
-import { selectUserById } from '../models/user.js';
-
 import { selectInstanceQuestionContext } from '../lib/instance-question-context.js';
+import { selectUserById } from '../models/user.js';
 
 import {
   type QuestionServerGenerateContext,
@@ -42,7 +40,9 @@ function sanitizeGroupMember(member: User, roles: string[]): QuestionServerGroup
   };
 }
 
-async function resolveUser(options: BuildViewerContextOptions): Promise<QuestionServerUserInfo | null> {
+async function resolveUser(
+  options: BuildViewerContextOptions,
+): Promise<QuestionServerUserInfo | null> {
   if (options.preloadedUser) {
     return sanitizeUser(options.preloadedUser);
   }
@@ -54,7 +54,9 @@ async function resolveUser(options: BuildViewerContextOptions): Promise<Question
   return sanitizeUser(user);
 }
 
-async function resolveGroup(options: BuildViewerContextOptions): Promise<QuestionServerGroupInfo | null> {
+async function resolveGroup(
+  options: BuildViewerContextOptions,
+): Promise<QuestionServerGroupInfo | null> {
   let groupId = options.groupId ?? options.variant?.group_id ?? null;
   let assessmentId = options.assessmentId ?? null;
   if ((!groupId || !assessmentId) && options.variant?.instance_question_id) {
@@ -87,15 +89,14 @@ async function resolveGroup(options: BuildViewerContextOptions): Promise<Questio
   };
 }
 
-export async function buildViewerContext(options: BuildViewerContextOptions): Promise<ViewerContext> {
+export async function buildViewerContext(
+  options: BuildViewerContextOptions,
+): Promise<ViewerContext> {
   if (options.questionIsShared) {
     return { user: null, group: null };
   }
 
-  const [user, group] = await Promise.all([
-    resolveUser(options),
-    resolveGroup(options),
-  ]);
+  const [user, group] = await Promise.all([resolveUser(options), resolveGroup(options)]);
 
   return { user, group };
 }
